@@ -92,14 +92,27 @@ if uploaded_file:
         st.error("Coluna 'ANO/MÊS' não encontrada.")
         st.stop()
 
-    # --- Limpeza Numérica ---
+    # --- Limpeza Numérica (Corrigido para evitar deslocamento de vírgula) ---
     numeric_cols = ["Peso", "Valor_FOB", "Valor_CIF", "Qtd_Estatística", "CIF_Unitário", "FOB_Unitário"]
     for col in numeric_cols:
         if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).str.replace(" ", "", regex=False),
-                errors='coerce'
-            ).fillna(0).astype(float)
+            # Se a coluna já for numérica (float ou int), não mexemos na string para evitar erros
+            if not pd.api.types.is_numeric_dtype(df[col]):
+                # Se for objeto (string), fazemos a limpeza cuidadosa
+                df[col] = df[col].astype(str).str.replace(" ", "", regex=False)
+                # Lógica: Se houver vírgula e ponto, assumimos ponto como milhar e vírgula como decimal (Padrão BR)
+                # Se houver apenas vírgula, trocamos por ponto
+                # Se houver apenas ponto, mantemos (Padrão US/Python)
+                def clean_currency_string(val):
+                    if "," in val and "." in val:
+                        return val.replace(".", "").replace(",", ".")
+                    elif "," in val:
+                        return val.replace(",", ".")
+                    return val
+                
+                df[col] = df[col].apply(clean_currency_string)
+            
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(float)
 
     # =====================================================
     # 🔍 SEÇÃO DE FILTROS LATERAL
@@ -180,7 +193,6 @@ if uploaded_file:
             with col_g2:
                 fig_cif_u = px.line(df_grouped, x="ANO/MÊS", y="CIF_Unitário", color=group_by_col if group_by_col != "Nenhum" else None,
                                    title="Evolução CIF Unitário (US$/kg)", markers=True)
-                # Formatação hover com 4 casas decimais
                 fig_cif_u.update_traces(hovertemplate="Data: %{x}<br>CIF Unitário: US$ %{y:.4f}/kg")
                 st.plotly_chart(fig_cif_u, use_container_width=True)
 
@@ -188,7 +200,6 @@ if uploaded_file:
             cols_show = ["ANO/MÊS", "NCM", "Descrição", "País", "Peso", "CIF_Unitário", "Importador", "Exportador"]
             cols_available = [c for c in cols_show if c in df_filtrado.columns]
             
-            # Formatação visual da tabela com 4 casas decimais para o CIF Unitário
             df_display = df_filtrado[cols_available].sort_values("ANO/MÊS", ascending=False)
             st.dataframe(
                 df_display.style.format({
@@ -234,8 +245,6 @@ if uploaded_file:
                 fig_forecast = plot_plotly(m, forecast)
                 unit_label = "US$/kg" if metrica == "CIF_Unitário" else ("kg" if metrica == "Peso" else "US$")
                 fig_forecast.update_layout(title=f"Previsão de {metrica} ({unit_label})")
-                
-                # Ajuste de precisão nas dicas do gráfico de previsão
                 fig_forecast.update_traces(hovertemplate="Data: %{x}<br>Valor: %{y:.4f}")
                 
                 st.plotly_chart(fig_forecast, use_container_width=True)
