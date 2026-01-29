@@ -27,7 +27,6 @@ if uploaded_file:
     try:
         if file_extension == "xlsx":
             try:
-                # Tenta ler a aba 'Sheet1', mas fallback para a primeira aba se não existir
                 df = pd.read_excel(uploaded_file, sheet_name="Sheet1")
             except ValueError:
                 st.warning("A aba 'Sheet1' não foi encontrada. Lendo a primeira aba da planilha.")
@@ -41,13 +40,14 @@ if uploaded_file:
     # --- Normalização e Mapeamento de Colunas ---
     df.columns = [col.strip() for col in df.columns]
 
+    # Ajuste: "Descrição produto" agora é mapeado para "Descrição"
     column_mapping = {
         "Peso líquido": "Peso",
         "VALOR FOB ESTIMADO TOTAL": "Valor_FOB",
         "VALOR CIF TOTAL": "Valor_CIF",
         "QTD Estatística": "Qtd_Estatística",
         "Qtd. de operações estimada": "Qtd_Estatística",
-        "Descrição produto": "Produto",
+        "Descrição produto": "Descrição",
         "PAIS DE ORIGEM": "País",
         "PAÍS DE ORIGEM": "País",
         "País de aquisição": "País_Aquisição",
@@ -65,7 +65,6 @@ if uploaded_file:
     
     renamed_cols = {k: v for k, v in column_mapping.items() if k in df.columns}
 
-    # Resolver duplicidade de Qtd_Estatística
     if "QTD Estatística" in df.columns and "Qtd. de operações estimada" in df.columns:
         df.drop(columns=["QTD Estatística"], inplace=True)
         if "QTD Estatística" in renamed_cols: del renamed_cols["QTD Estatística"]
@@ -91,45 +90,51 @@ if uploaded_file:
         df["ANO/MÊS"] = df["ANO/MÊS"].apply(safe_to_datetime)
         df.dropna(subset=["ANO/MÊS"], inplace=True)
     else:
-        st.error("Coluna 'ANO/MÊS' não encontrada. Verifique o arquivo.")
+        st.error("Coluna 'ANO/MÊS' não encontrada.")
         st.stop()
 
-    # --- Limpeza Numérica Segura ---
+    # --- Limpeza Numérica (Ajuste de vírgulas e pontos) ---
     numeric_cols = ["Peso", "Valor_FOB", "Valor_CIF", "Qtd_Estatística", "CIF_Unitário", "FOB_Unitário"]
     for col in numeric_cols:
         if col in df.columns:
+            # Tratamento robusto: remove pontos de milhar e troca vírgula por ponto decimal
             df[col] = pd.to_numeric(
                 df[col].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).str.replace(" ", "", regex=False),
                 errors='coerce'
             ).fillna(0).astype(float)
 
     # =====================================================
-    # 🔍 SEÇÃO DE FILTROS LATERAL
+    # 🔍 SEÇÃO DE FILTROS LATERAL (ORDEM E LÓGICA ALTERADAS)
     # =====================================================
     st.sidebar.header("🔍 Filtros de Busca")
     
-    # Filtro de Produtos
-    produtos_list = sorted(df["Produto"].dropna().unique().tolist()) if "Produto" in df.columns else []
-    sel_produtos = st.sidebar.multiselect("Produtos (Vazio = Todos):", options=produtos_list)
-    
-    # NOVO: Filtro de NCM (Solicitação Alexandre)
+    # 1. NCM como primeiro filtro
     ncm_list = sorted(df["NCM"].dropna().unique().tolist()) if "NCM" in df.columns else []
-    sel_ncm = st.sidebar.multiselect("NCM (Vazio = Todos):", options=ncm_list)
+    sel_ncm = st.sidebar.multiselect("Filtrar por NCM (Vazio = Todos):", options=ncm_list)
     
-    # Filtro de Importadores
+    # 2. Descrição (Função Guarda-Chuva baseada no NCM)
+    if sel_ncm:
+        desc_subset = df[df["NCM"].isin(sel_ncm)]["Descrição"]
+    else:
+        desc_subset = df["Descrição"]
+    
+    descricoes_list = sorted(desc_subset.dropna().unique().tolist()) if "Descrição" in df.columns else []
+    sel_descricoes = st.sidebar.multiselect("Filtrar por Descrição (Vazio = Todos):", options=descricoes_list)
+    
+    # 3. Importadores
     importadores_list = sorted(df["Importador"].dropna().unique().tolist()) if "Importador" in df.columns else []
     sel_importadores = st.sidebar.multiselect("Pesquisar Importadores:", options=importadores_list)
 
-    # Filtro de Exportadores
+    # 4. Exportadores
     exportadores_list = sorted(df["Exportador"].dropna().unique().tolist()) if "Exportador" in df.columns else []
     sel_exportadores = st.sidebar.multiselect("Pesquisar Exportadores:", options=exportadores_list)
 
     # Aplicação centralizada dos filtros
     df_filtrado = df.copy()
-    if sel_produtos:
-        df_filtrado = df_filtrado[df_filtrado["Produto"].isin(sel_produtos)]
     if sel_ncm:
         df_filtrado = df_filtrado[df_filtrado["NCM"].isin(sel_ncm)]
+    if sel_descricoes:
+        df_filtrado = df_filtrado[df_filtrado["Descrição"].isin(sel_descricoes)]
     if sel_importadores:
         df_filtrado = df_filtrado[df_filtrado["Importador"].isin(sel_importadores)]
     if sel_exportadores:
@@ -154,7 +159,7 @@ if uploaded_file:
                     df_filtrado = df_filtrado[df_filtrado["País"].isin(sel_paises)]
             
             with col_f2:
-                group_opts = ["Nenhum"] + [c for c in ["Produto", "País", "Importador", "Exportador", "Modal", "Incoterm", "NCM"] if c in df_filtrado.columns]
+                group_opts = ["Nenhum"] + [c for c in ["Descrição", "País", "Importador", "Exportador", "Modal", "Incoterm", "NCM"] if c in df_filtrado.columns]
                 group_by_col = st.selectbox("Agrupar evolução temporal por:", group_opts)
 
             # Preparação de Dados Agrupados
@@ -162,12 +167,7 @@ if uploaded_file:
             if group_by_col != "Nenhum":
                 group_cols.append(group_by_col)
             
-            # Agregação ponderada para o CIF Unitário
-            def weighted_cif(x):
-                if x['Peso'].sum() == 0: return 0
-                return (x['Valor_CIF'].sum() / x['Peso'].sum())
-
-            # Agregamos os totais primeiro
+            # Agregação para Totais e Médias Ponderadas
             df_grouped = df_filtrado.groupby(group_cols).agg({
                 'Peso': 'sum',
                 'Valor_FOB': 'sum',
@@ -175,7 +175,7 @@ if uploaded_file:
                 'Qtd_Estatística': 'sum'
             }).reset_index()
             
-            # Calculamos o CIF Unitário Ponderado por período/grupo
+            # Cálculo do CIF Unitário (Ponderado pelo peso total do grupo/mês)
             df_grouped['CIF_Unitário'] = df_grouped.apply(
                 lambda row: row['Valor_CIF'] / row['Peso'] if row['Peso'] > 0 else 0, axis=1
             )
@@ -188,28 +188,37 @@ if uploaded_file:
                 st.plotly_chart(fig_peso, use_container_width=True)
 
             with col_g2:
-                # ALTERAÇÃO: Trocado Valor_FOB por CIF Unitário para comparação frequente
+                # Indicação clara de moeda (US$/kg) no título
                 fig_cif_u = px.line(df_grouped, x="ANO/MÊS", y="CIF_Unitário", color=group_by_col if group_by_col != "Nenhum" else None,
                                    title="Evolução CIF Unitário (US$/kg)", markers=True)
+                # Formatação das dicas (hover) para exibir vírgulas e moeda
+                fig_cif_u.update_traces(hovertemplate="Data: %{x}<br>CIF Unitário: US$ %{y:.4f}/kg")
                 st.plotly_chart(fig_cif_u, use_container_width=True)
 
             st.subheader("🔎 Detalhamento dos Dados")
-            # Exibe colunas de interesse no topo do dataframe
-            cols_show = ["ANO/MÊS", "Produto", "NCM", "País", "Peso", "CIF_Unitário", "Importador", "Exportador"]
+            # Tabela formatada com moeda
+            cols_show = ["ANO/MÊS", "NCM", "Descrição", "País", "Peso", "CIF_Unitário", "Importador", "Exportador"]
             cols_available = [c for c in cols_show if c in df_filtrado.columns]
-            st.dataframe(df_filtrado[cols_available + [c for c in df_filtrado.columns if c not in cols_available]].sort_values("ANO/MÊS", ascending=False), use_container_width=True)
+            
+            # Formatação visual da tabela para o usuário
+            st.dataframe(
+                df_filtrado[cols_available].sort_values("ANO/MÊS", ascending=False).style.format({
+                    "CIF_Unitário": "US$ {:.4f}",
+                    "Peso": "{:.2f} kg"
+                }), 
+                use_container_width=True
+            )
 
     # =====================================================
     # 🔮 PREVISÃO (PROPHET)
     # =====================================================
     elif menu == "Previsão":
-        st.subheader("🔮 Previsão de Séries Temporais")
+        st.subheader("🔮 Previsão de Séries Temporais (Valores em US$)")
         
-        # Incluímos CIF_Unitário como opção de métrica para prever
         available_metrics = [m for m in ["CIF_Unitário", "Peso", "Valor_FOB", "Valor_CIF"] if m in df_filtrado.columns]
         metrica = st.selectbox("Selecione a métrica para prever:", available_metrics, index=0)
 
-        with st.expander("🛠️ Ajustes do Modelo (Hiperparâmetros)"):
+        with st.expander("🛠️ Ajustes do Modelo"):
             c1, c2 = st.columns(2)
             with c1:
                 seasonality_mode = st.selectbox("Sazonalidade:", ["multiplicative", "additive"])
@@ -217,7 +226,7 @@ if uploaded_file:
             with c2:
                 changepoint_scale = st.slider("Flexibilidade (Prior Scale):", 0.001, 0.5, 0.05, 0.005)
 
-        # Agrupamento para Prophet - Para CIF Unitário usamos a média ponderada mensal
+        # Agrupamento para Prophet
         if metrica == "CIF_Unitário":
             df_p = df_filtrado.groupby("ANO/MÊS").apply(
                 lambda x: x['Valor_CIF'].sum() / x['Peso'].sum() if x['Peso'].sum() > 0 else 0
@@ -233,9 +242,11 @@ if uploaded_file:
                 forecast = m.predict(future)
                 
                 fig_forecast = plot_plotly(m, forecast)
+                unit_label = "US$/kg" if metrica == "CIF_Unitário" else ("kg" if metrica == "Peso" else "US$")
+                fig_forecast.update_layout(title=f"Previsão de {metrica} ({unit_label})")
                 st.plotly_chart(fig_forecast, use_container_width=True)
                 
-                st.subheader("📊 Componentes")
+                st.subheader("📊 Componentes da Tendência")
                 st.pyplot(m.plot_components(forecast))
 
                 st.markdown("---")
@@ -247,9 +258,9 @@ if uploaded_file:
                             st.write("Erro Médio (MAPE): {:.2f}%".format(df_perf['mape'].mean() * 100))
                             st.dataframe(df_perf[['horizon', 'rmse', 'mae', 'mape']])
                     except Exception:
-                        st.info("Série histórica insuficiente para cross-validation com este horizonte.")
+                        st.info("Dados insuficientes para validação cruzada.")
         else:
-            st.error("Dados insuficientes para gerar previsão (mínimo 2 meses históricos filtrados).")
+            st.error("Dados insuficientes para gerar previsão (mínimo de 2 meses históricos).")
 
 else:
     st.info("⬆️ Aguardando upload do arquivo Excel ou CSV para iniciar a análise.")
