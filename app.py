@@ -40,7 +40,6 @@ if uploaded_file:
     # --- Normalização e Mapeamento de Colunas ---
     df.columns = [col.strip() for col in df.columns]
 
-    # Ajuste: "Descrição produto" agora é mapeado para "Descrição"
     column_mapping = {
         "Peso líquido": "Peso",
         "VALOR FOB ESTIMADO TOTAL": "Valor_FOB",
@@ -93,26 +92,23 @@ if uploaded_file:
         st.error("Coluna 'ANO/MÊS' não encontrada.")
         st.stop()
 
-    # --- Limpeza Numérica (Ajuste de vírgulas e pontos) ---
+    # --- Limpeza Numérica ---
     numeric_cols = ["Peso", "Valor_FOB", "Valor_CIF", "Qtd_Estatística", "CIF_Unitário", "FOB_Unitário"]
     for col in numeric_cols:
         if col in df.columns:
-            # Tratamento robusto: remove pontos de milhar e troca vírgula por ponto decimal
             df[col] = pd.to_numeric(
                 df[col].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).str.replace(" ", "", regex=False),
                 errors='coerce'
             ).fillna(0).astype(float)
 
     # =====================================================
-    # 🔍 SEÇÃO DE FILTROS LATERAL (ORDEM E LÓGICA ALTERADAS)
+    # 🔍 SEÇÃO DE FILTROS LATERAL
     # =====================================================
     st.sidebar.header("🔍 Filtros de Busca")
     
-    # 1. NCM como primeiro filtro
     ncm_list = sorted(df["NCM"].dropna().unique().tolist()) if "NCM" in df.columns else []
     sel_ncm = st.sidebar.multiselect("Filtrar por NCM (Vazio = Todos):", options=ncm_list)
     
-    # 2. Descrição (Função Guarda-Chuva baseada no NCM)
     if sel_ncm:
         desc_subset = df[df["NCM"].isin(sel_ncm)]["Descrição"]
     else:
@@ -121,15 +117,12 @@ if uploaded_file:
     descricoes_list = sorted(desc_subset.dropna().unique().tolist()) if "Descrição" in df.columns else []
     sel_descricoes = st.sidebar.multiselect("Filtrar por Descrição (Vazio = Todos):", options=descricoes_list)
     
-    # 3. Importadores
     importadores_list = sorted(df["Importador"].dropna().unique().tolist()) if "Importador" in df.columns else []
     sel_importadores = st.sidebar.multiselect("Pesquisar Importadores:", options=importadores_list)
 
-    # 4. Exportadores
     exportadores_list = sorted(df["Exportador"].dropna().unique().tolist()) if "Exportador" in df.columns else []
     sel_exportadores = st.sidebar.multiselect("Pesquisar Exportadores:", options=exportadores_list)
 
-    # Aplicação centralizada dos filtros
     df_filtrado = df.copy()
     if sel_ncm:
         df_filtrado = df_filtrado[df_filtrado["NCM"].isin(sel_ncm)]
@@ -162,12 +155,10 @@ if uploaded_file:
                 group_opts = ["Nenhum"] + [c for c in ["Descrição", "País", "Importador", "Exportador", "Modal", "Incoterm", "NCM"] if c in df_filtrado.columns]
                 group_by_col = st.selectbox("Agrupar evolução temporal por:", group_opts)
 
-            # Preparação de Dados Agrupados
             group_cols = ["ANO/MÊS"]
             if group_by_col != "Nenhum":
                 group_cols.append(group_by_col)
             
-            # Agregação para Totais e Médias Ponderadas
             df_grouped = df_filtrado.groupby(group_cols).agg({
                 'Peso': 'sum',
                 'Valor_FOB': 'sum',
@@ -175,12 +166,11 @@ if uploaded_file:
                 'Qtd_Estatística': 'sum'
             }).reset_index()
             
-            # Cálculo do CIF Unitário (Ponderado pelo peso total do grupo/mês)
+            # Cálculo do CIF Unitário Ponderado
             df_grouped['CIF_Unitário'] = df_grouped.apply(
                 lambda row: row['Valor_CIF'] / row['Peso'] if row['Peso'] > 0 else 0, axis=1
             )
 
-            # --- Gráficos ---
             col_g1, col_g2 = st.columns(2)
             with col_g1:
                 fig_peso = px.line(df_grouped, x="ANO/MÊS", y="Peso", color=group_by_col if group_by_col != "Nenhum" else None,
@@ -188,24 +178,25 @@ if uploaded_file:
                 st.plotly_chart(fig_peso, use_container_width=True)
 
             with col_g2:
-                # Indicação clara de moeda (US$/kg) no título
                 fig_cif_u = px.line(df_grouped, x="ANO/MÊS", y="CIF_Unitário", color=group_by_col if group_by_col != "Nenhum" else None,
                                    title="Evolução CIF Unitário (US$/kg)", markers=True)
-                # Formatação das dicas (hover) para exibir vírgulas e moeda
+                # Formatação hover com 4 casas decimais
                 fig_cif_u.update_traces(hovertemplate="Data: %{x}<br>CIF Unitário: US$ %{y:.4f}/kg")
                 st.plotly_chart(fig_cif_u, use_container_width=True)
 
             st.subheader("🔎 Detalhamento dos Dados")
-            # Tabela formatada com moeda
             cols_show = ["ANO/MÊS", "NCM", "Descrição", "País", "Peso", "CIF_Unitário", "Importador", "Exportador"]
             cols_available = [c for c in cols_show if c in df_filtrado.columns]
             
-            # Formatação visual da tabela para o usuário
+            # Formatação visual da tabela com 4 casas decimais para o CIF Unitário
+            df_display = df_filtrado[cols_available].sort_values("ANO/MÊS", ascending=False)
             st.dataframe(
-                df_filtrado[cols_available].sort_values("ANO/MÊS", ascending=False).style.format({
-                    "CIF_Unitário": "US$ {:.4f}",
-                    "Peso": "{:.2f} kg"
-                }), 
+                df_display.style.format({
+                    "CIF_Unitário": "US$ {:,.4f}",
+                    "Peso": "{:,.2f} kg",
+                    "Valor_FOB": "US$ {:,.2f}",
+                    "Valor_CIF": "US$ {:,.2f}"
+                }, decimal=',', thousands='.'), 
                 use_container_width=True
             )
 
@@ -226,7 +217,6 @@ if uploaded_file:
             with c2:
                 changepoint_scale = st.slider("Flexibilidade (Prior Scale):", 0.001, 0.5, 0.05, 0.005)
 
-        # Agrupamento para Prophet
         if metrica == "CIF_Unitário":
             df_p = df_filtrado.groupby("ANO/MÊS").apply(
                 lambda x: x['Valor_CIF'].sum() / x['Peso'].sum() if x['Peso'].sum() > 0 else 0
@@ -244,6 +234,10 @@ if uploaded_file:
                 fig_forecast = plot_plotly(m, forecast)
                 unit_label = "US$/kg" if metrica == "CIF_Unitário" else ("kg" if metrica == "Peso" else "US$")
                 fig_forecast.update_layout(title=f"Previsão de {metrica} ({unit_label})")
+                
+                # Ajuste de precisão nas dicas do gráfico de previsão
+                fig_forecast.update_traces(hovertemplate="Data: %{x}<br>Valor: %{y:.4f}")
+                
                 st.plotly_chart(fig_forecast, use_container_width=True)
                 
                 st.subheader("📊 Componentes da Tendência")
