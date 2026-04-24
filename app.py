@@ -8,6 +8,7 @@ import numpy as np
 import warnings
 import logging
 from matplotlib import pyplot as plt
+import re
 
 # Configurações iniciais
 st.set_page_config(page_title="Análise de Importação PMMA", layout="wide")
@@ -92,27 +93,26 @@ if uploaded_file:
         st.error("Coluna 'ANO/MÊS' não encontrada.")
         st.stop()
 
-    # --- Limpeza Numérica (Corrigido para evitar deslocamento de vírgula) ---
+    # --- Limpeza Numérica Robusta ---
     numeric_cols = ["Peso", "Valor_FOB", "Valor_CIF", "Qtd_Estatística", "CIF_Unitário", "FOB_Unitário"]
     for col in numeric_cols:
         if col in df.columns:
-            # Se a coluna já for numérica (float ou int), não mexemos na string para evitar erros
             if not pd.api.types.is_numeric_dtype(df[col]):
-                # Se for objeto (string), fazemos a limpeza cuidadosa
                 df[col] = df[col].astype(str).str.replace(" ", "", regex=False)
-                # Lógica: Se houver vírgula e ponto, assumimos ponto como milhar e vírgula como decimal (Padrão BR)
-                # Se houver apenas vírgula, trocamos por ponto
-                # Se houver apenas ponto, mantemos (Padrão US/Python)
                 def clean_currency_string(val):
                     if "," in val and "." in val:
+                        # Assume ponto como milhar e vírgula como decimal
                         return val.replace(".", "").replace(",", ".")
                     elif "," in val:
                         return val.replace(",", ".")
                     return val
-                
                 df[col] = df[col].apply(clean_currency_string)
             
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(float)
+
+    # --- Tratamento de NCM ---
+    if "NCM" in df.columns:
+        df["NCM"] = df["NCM"].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).replace('.','',1).isdigit() else str(x))
 
     # =====================================================
     # 🔍 SEÇÃO DE FILTROS LATERAL
@@ -120,32 +120,29 @@ if uploaded_file:
     st.sidebar.header("🔍 Filtros de Busca")
     
     ncm_list = sorted(df["NCM"].dropna().unique().tolist()) if "NCM" in df.columns else []
-    sel_ncm = st.sidebar.multiselect("Filtrar por NCM (Vazio = Todos):", options=ncm_list)
+    ncm_default = [n for n in ncm_list if "39061000" in n]
+    sel_ncm = st.sidebar.multiselect("Filtrar por NCM:", options=ncm_list, default=ncm_default)
     
-    if sel_ncm:
-        desc_subset = df[df["NCM"].isin(sel_ncm)]["Descrição"]
-    else:
-        desc_subset = df["Descrição"]
-    
-    descricoes_list = sorted(desc_subset.dropna().unique().tolist()) if "Descrição" in df.columns else []
-    sel_descricoes = st.sidebar.multiselect("Filtrar por Descrição (Vazio = Todos):", options=descricoes_list)
-    
-    importadores_list = sorted(df["Importador"].dropna().unique().tolist()) if "Importador" in df.columns else []
-    sel_importadores = st.sidebar.multiselect("Pesquisar Importadores:", options=importadores_list)
-
-    exportadores_list = sorted(df["Exportador"].dropna().unique().tolist()) if "Exportador" in df.columns else []
-    sel_exportadores = st.sidebar.multiselect("Pesquisar Exportadores:", options=exportadores_list)
-
     df_filtrado = df.copy()
     if sel_ncm:
         df_filtrado = df_filtrado[df_filtrado["NCM"].isin(sel_ncm)]
+    
+    descricoes_list = sorted(df_filtrado["Descrição"].dropna().unique().tolist()) if "Descrição" in df_filtrado.columns else []
+    sel_descricoes = st.sidebar.multiselect("Filtrar por Descrição:", options=descricoes_list)
     if sel_descricoes:
         df_filtrado = df_filtrado[df_filtrado["Descrição"].isin(sel_descricoes)]
+    
+    importadores_list = sorted(df_filtrado["Importador"].dropna().unique().tolist()) if "Importador" in df_filtrado.columns else []
+    sel_importadores = st.sidebar.multiselect("Pesquisar Importadores:", options=importadores_list)
     if sel_importadores:
         df_filtrado = df_filtrado[df_filtrado["Importador"].isin(sel_importadores)]
+
+    exportadores_list = sorted(df_filtrado["Exportador"].dropna().unique().tolist()) if "Exportador" in df_filtrado.columns else []
+    sel_exportadores = st.sidebar.multiselect("Pesquisar Exportadores:", options=exportadores_list)
     if sel_exportadores:
         df_filtrado = df_filtrado[df_filtrado["Exportador"].isin(sel_exportadores)]
 
+    st.sidebar.markdown("---")
     menu = st.sidebar.radio("Navegação:", ["Análise Histórica", "Previsão"])
 
     # =====================================================
@@ -159,27 +156,26 @@ if uploaded_file:
         else:
             col_f1, col_f2 = st.columns(2)
             with col_f1:
-                paises_options = sorted(df_filtrado["País"].dropna().unique().tolist())
+                pais_col = "País" if "País" in df_filtrado.columns else "País_Aquisição"
+                paises_options = sorted(df_filtrado[pais_col].dropna().unique().tolist())
                 sel_paises = st.multiselect("Filtrar por País de Origem:", paises_options)
                 if sel_paises:
-                    df_filtrado = df_filtrado[df_filtrado["País"].isin(sel_paises)]
+                    df_filtrado = df_filtrado[df_filtrado[pais_col].isin(sel_paises)]
             
             with col_f2:
                 group_opts = ["Nenhum"] + [c for c in ["Descrição", "País", "Importador", "Exportador", "Modal", "Incoterm", "NCM"] if c in df_filtrado.columns]
                 group_by_col = st.selectbox("Agrupar evolução temporal por:", group_opts)
 
+            # Agrupamento para os gráficos
             group_cols = ["ANO/MÊS"]
             if group_by_col != "Nenhum":
                 group_cols.append(group_by_col)
             
             df_grouped = df_filtrado.groupby(group_cols).agg({
                 'Peso': 'sum',
-                'Valor_FOB': 'sum',
-                'Valor_CIF': 'sum',
-                'Qtd_Estatística': 'sum'
+                'Valor_CIF': 'sum'
             }).reset_index()
             
-            # Cálculo do CIF Unitário Ponderado
             df_grouped['CIF_Unitário'] = df_grouped.apply(
                 lambda row: row['Valor_CIF'] / row['Peso'] if row['Peso'] > 0 else 0, axis=1
             )
@@ -204,9 +200,7 @@ if uploaded_file:
             st.dataframe(
                 df_display.style.format({
                     "CIF_Unitário": "US$ {:,.4f}",
-                    "Peso": "{:,.2f} kg",
-                    "Valor_FOB": "US$ {:,.2f}",
-                    "Valor_CIF": "US$ {:,.2f}"
+                    "Peso": "{:,.2f} kg"
                 }, decimal=',', thousands='.'), 
                 use_container_width=True
             )
@@ -217,53 +211,49 @@ if uploaded_file:
     elif menu == "Previsão":
         st.subheader("🔮 Previsão de Séries Temporais (Valores em US$)")
         
-        available_metrics = [m for m in ["CIF_Unitário", "Peso", "Valor_FOB", "Valor_CIF"] if m in df_filtrado.columns]
-        metrica = st.selectbox("Selecione a métrica para prever:", available_metrics, index=0)
+        if not df_filtrado.empty:
+            available_metrics = [m for m in ["CIF_Unitário", "Peso", "Valor_CIF"] if m in df_filtrado.columns]
+            metrica = st.selectbox("Selecione a métrica para prever:", available_metrics, index=0)
+            periods = st.slider("Meses para prever:", 1, 24, 6)
 
-        with st.expander("🛠️ Ajustes do Modelo"):
-            c1, c2 = st.columns(2)
-            with c1:
-                seasonality_mode = st.selectbox("Sazonalidade:", ["multiplicative", "additive"])
-                periods = st.slider("Meses para prever:", 1, 24, 6)
-            with c2:
-                changepoint_scale = st.slider("Flexibilidade (Prior Scale):", 0.001, 0.5, 0.05, 0.005)
+            # Preparação do DataFrame para o Prophet
+            if metrica == "CIF_Unitário":
+                df_p = df_filtrado.groupby("ANO/MÊS").apply(
+                    lambda x: x['Valor_CIF'].sum() / x['Peso'].sum() if x['Peso'].sum() > 0 else 0
+                ).reset_index().rename(columns={"ANO/MÊS": "ds", 0: "y"})
+            else:
+                df_p = df_filtrado.groupby("ANO/MÊS")[metrica].sum().reset_index().rename(columns={"ANO/MÊS": "ds", metrica: "y"})
+            
+            df_p = df_p[df_p['y'] > 0].sort_values("ds")
 
-        if metrica == "CIF_Unitário":
-            df_p = df_filtrado.groupby("ANO/MÊS").apply(
-                lambda x: x['Valor_CIF'].sum() / x['Peso'].sum() if x['Peso'].sum() > 0 else 0
-            ).reset_index().rename(columns={"ANO/MÊS": "ds", 0: "y"})
-        else:
-            df_p = df_filtrado.groupby("ANO/MÊS")[metrica].sum().reset_index().rename(columns={"ANO/MÊS": "ds", metrica: "y"})
-        
-        if len(df_p) >= 2:
-            with st.spinner("Calculando previsão..."):
-                m = Prophet(seasonality_mode=seasonality_mode, changepoint_prior_scale=changepoint_scale, yearly_seasonality=True)
-                m.fit(df_p)
-                future = m.make_future_dataframe(periods=periods, freq='M')
-                forecast = m.predict(future)
-                
-                fig_forecast = plot_plotly(m, forecast)
-                unit_label = "US$/kg" if metrica == "CIF_Unitário" else ("kg" if metrica == "Peso" else "US$")
-                fig_forecast.update_layout(title=f"Previsão de {metrica} ({unit_label})")
-                fig_forecast.update_traces(hovertemplate="Data: %{x}<br>Valor: %{y:.4f}")
-                
-                st.plotly_chart(fig_forecast, use_container_width=True)
-                
-                st.subheader("📊 Componentes da Tendência")
-                st.pyplot(m.plot_components(forecast))
+            if len(df_p) >= 2:
+                with st.spinner("Calculando previsão..."):
+                    m = Prophet(yearly_seasonality=True, interval_width=0.95)
+                    m.fit(df_p)
+                    future = m.make_future_dataframe(periods=periods, freq='MS')
+                    forecast = m.predict(future)
+                    
+                    fig_forecast = plot_plotly(m, forecast)
+                    unit_label = "US$/kg" if metrica == "CIF_Unitário" else ("kg" if metrica == "Peso" else "US$")
+                    fig_forecast.update_layout(title=f"Previsão de {metrica} ({unit_label})", yaxis_title=unit_label, xaxis_title="Data")
+                    fig_forecast.update_traces(hovertemplate="Data: %{x}<br>Valor: %{y:.4f}")
+                    
+                    st.plotly_chart(fig_forecast, use_container_width=True)
+                    
+                    st.subheader("📊 Componentes da Tendência")
+                    st.pyplot(m.plot_components(forecast))
 
-                st.markdown("---")
-                if st.checkbox("Executar Diagnóstico de Erro (Cross-Validation)?"):
-                    try:
-                        with st.spinner("Processando..."):
-                            df_cv = cross_validation(m, initial='730 days', period='180 days', horizon=f'{periods*30} days')
+                    if st.checkbox("Mostrar Diagnóstico de Erro (MAPE)"):
+                        try:
+                            df_cv = cross_validation(m, initial='365 days', period='90 days', horizon='180 days')
                             df_perf = performance_metrics(df_cv)
-                            st.write("Erro Médio (MAPE): {:.2f}%".format(df_perf['mape'].mean() * 100))
-                            st.dataframe(df_perf[['horizon', 'rmse', 'mae', 'mape']])
-                    except Exception:
-                        st.info("Dados insuficientes para validação cruzada.")
+                            st.write(f"Erro Médio (MAPE): {df_perf['mape'].mean() * 100:.2f}%")
+                        except:
+                            st.info("Dados insuficientes para validação estatística completa.")
+            else:
+                st.error("Dados históricos insuficientes para gerar previsão (mínimo de 2 meses históricos).")
         else:
-            st.error("Dados insuficientes para gerar previsão (mínimo de 2 meses históricos).")
+            st.info("Carregue dados e aplique filtros para ver a previsão.")
 
 else:
     st.info("⬆️ Aguardando upload do arquivo Excel ou CSV para iniciar a análise.")
