@@ -220,7 +220,7 @@ if uploaded_file:
                                          name="Tendência (Média 3m)", line=dict(dash='dash', color=ARKEMA_TEAL))
                 st.plotly_chart(fig_cif_u, use_container_width=True)
 
-            # --- Linha 2: Barras (Altura: 700px para acomodar listas longas de empresas) ---
+            # --- Linha 2: Volume por Empresa e Preço por Exportador ---
             st.markdown("---")
             col_v1, col_v2 = st.columns(2)
             
@@ -233,7 +233,7 @@ if uploaded_file:
                 fig_imp = px.bar(df_imp, x="Toneladas", y="Importador", orientation='h',
                                  title="Top 15 Importadores (Toneladas)", height=700)
                 fig_imp.update_traces(marker_color=ARKEMA_PURPLE)
-                fig_imp.update_layout(yaxis={'categoryorder':'total ascending'}) # Melhora a ordenação visual
+                fig_imp.update_layout(yaxis={'categoryorder':'total ascending'})
                 st.plotly_chart(fig_imp, use_container_width=True)
 
             with col_v2:
@@ -247,6 +247,23 @@ if uploaded_file:
                 fig_exp.update_traces(marker_color=ARKEMA_GREEN)
                 fig_exp.update_layout(yaxis={'categoryorder':'total descending'})
                 st.plotly_chart(fig_exp, use_container_width=True)
+
+            # --- TABELA ESTILO EXCEL (REPOSICIONADA E MELHORADA) ---
+            st.markdown("---")
+            with st.expander("📂 Visualizar Tabela de Dados Detalhada (Estilo Excel)", expanded=True):
+                cols_show = ["ANO/MÊS", "NCM", "Descrição", "País", "Peso", "CIF_Unitário", "Importador", "Exportador"]
+                cols_available = [c for c in cols_show if c in df_filtrado.columns]
+                
+                df_display = df_filtrado[cols_available].sort_values("ANO/MÊS", ascending=False)
+                
+                st.dataframe(
+                    df_display.style.format({
+                        "CIF_Unitário": "US$ {:,.4f}",
+                        "Peso": "{:,.2f} kg"
+                    }, decimal=',', thousands='.'), 
+                    use_container_width=True,
+                    height=500 # Define uma altura fixa para a tabela ter barra de rolagem própria
+                )
     # =====================================================
     # 🔮 PREVISÃO (PROPHET)
     # =====================================================
