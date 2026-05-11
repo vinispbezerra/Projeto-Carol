@@ -158,15 +158,15 @@ if uploaded_file:
     menu = st.sidebar.radio("Navegação:", ["Análise Histórica", "Previsão"])
 
     # =====================================================
-    # 📈 ANÁLISE HISTÓRICA (CORES ARKEMA ATUALIZADAS)
+    # 📈 ANÁLISE HISTÓRICA (GRÁFICOS AMPLIADOS & CORES ATUALIZADAS)
     # =====================================================
     if menu == "Análise Histórica":
         st.subheader("📈 Painel de Análise Histórica")
         
-        # Paleta extraída da sua imagem
-        ARKEMA_PURPLE = "#45416A"  # O início do logo ("ARK")
-        ARKEMA_TEAL = "#70C0A7"    # O final do logo ("EMA")
-        ARKEMA_GREEN = "#2E8B72"   # O tom médio do gradiente
+        # Paleta Arkema extraída da imagem
+        ARKEMA_PURPLE = "#45416A"  # Roxo
+        ARKEMA_TEAL = "#70C0A7"    # Verde-água
+        ARKEMA_GREEN = "#2E8B72"   # Verde médio
         
         if df_filtrado.empty:
             st.warning("Nenhum dado encontrado para os filtros selecionados.")
@@ -192,17 +192,18 @@ if uploaded_file:
             df_grouped['CIF_Unitário'] = df_grouped.apply(lambda r: r['Valor_CIF'] / r['Peso'] if r['Peso'] > 0 else 0, axis=1)
             df_grouped = df_grouped.sort_values("ANO/MÊS")
             
-            # Médias para tendência
+            # Tendências
             df_grouped['Peso_Media_Movel'] = df_grouped['Peso'].rolling(window=3).mean()
             df_grouped['CIF_Media_Movel'] = df_grouped['CIF_Unitário'].rolling(window=3).mean()
 
-            # --- Linha 1: Gráficos de Evolução ---
+            # --- Linha 1: Evolução Temporal (Altura: 600px) ---
             col_g1, col_g2 = st.columns(2)
             with col_g1:
                 fig_peso = px.line(df_grouped, x="ANO/MÊS", y="Peso", 
                                   color=group_by_col if group_by_col != "Nenhum" else None,
                                   color_discrete_sequence=[ARKEMA_PURPLE, ARKEMA_TEAL, ARKEMA_GREEN],
-                                  title="Evolução de Peso Líquido (kg)", markers=True)
+                                  title="Evolução de Peso Líquido (kg)", 
+                                  markers=True, height=600)
                 if group_by_col == "Nenhum":
                     fig_peso.add_scatter(x=df_grouped["ANO/MÊS"], y=df_grouped["Peso_Media_Movel"], 
                                        name="Tendência (Média 3m)", line=dict(dash='dash', color=ARKEMA_TEAL))
@@ -212,13 +213,14 @@ if uploaded_file:
                 fig_cif_u = px.line(df_grouped, x="ANO/MÊS", y="CIF_Unitário", 
                                    color=group_by_col if group_by_col != "Nenhum" else None,
                                    color_discrete_sequence=[ARKEMA_PURPLE, ARKEMA_TEAL, ARKEMA_GREEN],
-                                   title="Evolução CIF Unitário (US$/kg)", markers=True)
+                                   title="Evolução CIF Unitário (US$/kg)", 
+                                   markers=True, height=600)
                 if group_by_col == "Nenhum":
                     fig_cif_u.add_scatter(x=df_grouped["ANO/MÊS"], y=df_grouped["CIF_Media_Movel"], 
                                          name="Tendência (Média 3m)", line=dict(dash='dash', color=ARKEMA_TEAL))
                 st.plotly_chart(fig_cif_u, use_container_width=True)
 
-            # --- Linha 2: Volume por Empresa e Preço por Exportador ---
+            # --- Linha 2: Barras (Altura: 700px para acomodar listas longas de empresas) ---
             st.markdown("---")
             col_v1, col_v2 = st.columns(2)
             
@@ -227,9 +229,11 @@ if uploaded_file:
                 df_imp = df_filtrado.groupby("Importador")["Peso"].sum().reset_index()
                 df_imp["Toneladas"] = df_imp["Peso"] / 1000
                 df_imp = df_imp.sort_values("Toneladas", ascending=False).head(15)
+                
                 fig_imp = px.bar(df_imp, x="Toneladas", y="Importador", orientation='h',
-                                 title="Top 15 Importadores (Toneladas)")
-                fig_imp.update_traces(marker_color=ARKEMA_PURPLE) # Cor principal do logo
+                                 title="Top 15 Importadores (Toneladas)", height=700)
+                fig_imp.update_traces(marker_color=ARKEMA_PURPLE)
+                fig_imp.update_layout(yaxis={'categoryorder':'total ascending'}) # Melhora a ordenação visual
                 st.plotly_chart(fig_imp, use_container_width=True)
 
             with col_v2:
@@ -237,25 +241,12 @@ if uploaded_file:
                 df_exp = df_filtrado.groupby("Exportador").agg({'Valor_CIF': 'sum', 'Peso': 'sum'}).reset_index()
                 df_exp["CIF_Médio"] = df_exp["Valor_CIF"] / df_exp["Peso"]
                 df_exp = df_exp[df_exp["Peso"] > 500].sort_values("CIF_Médio", ascending=True).head(15)
+                
                 fig_exp = px.bar(df_exp, x="CIF_Médio", y="Exportador", orientation='h',
-                                 title="Preço Médio por Exportador (US$/kg)")
-                fig_exp.update_traces(marker_color=ARKEMA_GREEN) # Cor de destaque (verde médio)
+                                 title="Preço Médio por Exportador (US$/kg)", height=700)
+                fig_exp.update_traces(marker_color=ARKEMA_GREEN)
+                fig_exp.update_layout(yaxis={'categoryorder':'total descending'})
                 st.plotly_chart(fig_exp, use_container_width=True)
-
-            # --- Tabela Detalhada ---
-            st.subheader("🔎 Detalhamento")
-            cols_show = ["ANO/MÊS", "NCM", "Descrição", "País", "Peso", "CIF_Unitário", "Importador", "Exportador"]
-            cols_available = [c for c in cols_show if c in df_filtrado.columns]
-            st.dataframe(df_filtrado[cols_available].sort_values("ANO/MÊS", ascending=False).style.format({
-                "CIF_Unitário": "US$ {:,.4f}", "Peso": "{:,.2f} kg"}, decimal=',', thousands='.'), use_container_width=True)
-
-            # --- Tabela Detalhada ---
-            st.subheader("🔎 Detalhamento dos Dados")
-            cols_show = ["ANO/MÊS", "NCM", "Descrição", "País", "Peso", "CIF_Unitário", "Importador", "Exportador"]
-            cols_available = [c for c in cols_show if c in df_filtrado.columns]
-            df_display = df_filtrado[cols_available].sort_values("ANO/MÊS", ascending=False)
-            st.dataframe(df_display.style.format({"CIF_Unitário": "US$ {:,.4f}", "Peso": "{:,.2f} kg"}, decimal=',', thousands='.'), use_container_width=True)
-
     # =====================================================
     # 🔮 PREVISÃO (PROPHET)
     # =====================================================
