@@ -98,14 +98,19 @@ if uploaded_file:
     for col in numeric_cols:
         if col in df.columns:
             if not pd.api.types.is_numeric_dtype(df[col]):
+                # Convertemos para string e removemos espaços para evitar o TypeError
                 df[col] = df[col].astype(str).str.replace(" ", "", regex=False)
+                
                 def clean_currency_string(val):
+                    val = str(val) # Garante que o valor seja string para a comparação abaixo
                     if "," in val and "." in val:
                         return val.replace(".", "").replace(",", ".")
                     elif "," in val:
                         return val.replace(",", ".")
                     return val
+                
                 df[col] = df[col].apply(clean_currency_string)
+            
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(float)
 
     # =====================================================
