@@ -178,6 +178,7 @@ if uploaded_file:
                 group_opts = ["Nenhum"] + [c for c in ["Descrição", "País", "Importador", "Exportador", "Modal", "Incoterm", "NCM"] if c in df_filtrado.columns]
                 group_by_col = st.selectbox("Agrupar evolução temporal por:", group_opts)
 
+            # --- Preparação de Dados Agrupados ---
             group_cols = ["ANO/MÊS"]
             if group_by_col != "Nenhum":
                 group_cols.append(group_by_col)
@@ -187,35 +188,60 @@ if uploaded_file:
                 'Valor_CIF': 'sum'
             }).reset_index()
             
-            # Recálculo Ponderado para as médias no gráfico
             df_grouped['CIF_Unitário'] = df_grouped.apply(
                 lambda row: row['Valor_CIF'] / row['Peso'] if row['Peso'] > 0 else 0, axis=1
             )
+            
+            # Cálculo de Médias Móveis para Tendência (Janela de 3 meses)
+            df_grouped = df_grouped.sort_values("ANO/MÊS")
+            df_grouped['Peso_Media_Movel'] = df_grouped['Peso'].rolling(window=3).mean()
+            df_grouped['CIF_Media_Movel'] = df_grouped['CIF_Unitário'].rolling(window=3).mean()
 
+            # --- Linha 1: Evolução Temporal com Tendência ---
             col_g1, col_g2 = st.columns(2)
             with col_g1:
                 fig_peso = px.line(df_grouped, x="ANO/MÊS", y="Peso", color=group_by_col if group_by_col != "Nenhum" else None,
                                   title="Evolução de Peso Líquido (kg)", markers=True)
+                # Adiciona linha de tendência se não houver agrupamento para não poluir o gráfico
+                if group_by_col == "Nenhum":
+                    fig_peso.add_scatter(x=df_grouped["ANO/MÊS"], y=df_grouped["Peso_Media_Movel"], name="Tendência (Média 3m)", line=dict(dash='dash', color='orange'))
                 st.plotly_chart(fig_peso, use_container_width=True)
 
             with col_g2:
                 fig_cif_u = px.line(df_grouped, x="ANO/MÊS", y="CIF_Unitário", color=group_by_col if group_by_col != "Nenhum" else None,
-                                   title="Evolução CIF Unitário Realista (US$/kg)", markers=True)
-                fig_cif_u.update_traces(hovertemplate="Data: %{x}<br>CIF Unitário: US$ %{y:.4f}/kg")
+                                   title="Evolução CIF Unitário (US$/kg)", markers=True)
+                if group_by_col == "Nenhum":
+                    fig_cif_u.add_scatter(x=df_grouped["ANO/MÊS"], y=df_grouped["CIF_Media_Movel"], name="Tendência (Média 3m)", line=dict(dash='dash', color='red'))
                 st.plotly_chart(fig_cif_u, use_container_width=True)
 
+            # --- Linha 2: Volume por Empresa e Preço por Exportador ---
+            st.markdown("---")
+            col_v1, col_v2 = st.columns(2)
+            
+            with col_v1:
+                st.subheader("Volume por Importador")
+                df_imp = df_filtrado.groupby("Importador")["Peso"].sum().reset_index()
+                df_imp["Toneladas"] = df_imp["Peso"] / 1000
+                df_imp = df_imp.sort_values("Toneladas", ascending=False).head(15)
+                fig_imp = px.bar(df_imp, x="Toneladas", y="Importador", orientation='h', 
+                                 title="Top 15 Importadores (Toneladas)", color="Toneladas", color_continuous_scale="Viridis")
+                st.plotly_chart(fig_imp, use_container_width=True)
+
+            with col_v2:
+                st.subheader("Preço Médio por Exportador")
+                df_exp = df_filtrado.groupby("Exportador").agg({'Valor_CIF': 'sum', 'Peso': 'sum'}).reset_index()
+                df_exp["CIF_Médio"] = df_exp["Valor_CIF"] / df_exp["Peso"]
+                df_exp = df_exp[df_exp["Peso"] > 500].sort_values("CIF_Médio", ascending=True).head(15) # Filtro de mín. 500kg para evitar outliers
+                fig_exp = px.bar(df_exp, x="CIF_Médio", y="Exportador", orientation='h',
+                                 title="Preço Médio por Exportador (Top 15 mais baratos)", color="CIF_Médio", color_continuous_scale="Reds_r")
+                st.plotly_chart(fig_exp, use_container_width=True)
+
+            # --- Tabela Detalhada ---
             st.subheader("🔎 Detalhamento dos Dados")
             cols_show = ["ANO/MÊS", "NCM", "Descrição", "País", "Peso", "CIF_Unitário", "Importador", "Exportador"]
             cols_available = [c for c in cols_show if c in df_filtrado.columns]
-            
             df_display = df_filtrado[cols_available].sort_values("ANO/MÊS", ascending=False)
-            st.dataframe(
-                df_display.style.format({
-                    "CIF_Unitário": "US$ {:,.4f}",
-                    "Peso": "{:,.2f} kg"
-                }, decimal=',', thousands='.'), 
-                use_container_width=True
-            )
+            st.dataframe(df_display.style.format({"CIF_Unitário": "US$ {:,.4f}", "Peso": "{:,.2f} kg"}, decimal=',', thousands='.'), use_container_width=True)
 
     # =====================================================
     # 🔮 PREVISÃO (PROPHET)
