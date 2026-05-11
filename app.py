@@ -58,8 +58,8 @@ if uploaded_file:
         "NCM": "NCM", 
         "MODAL": "Modal",
         "Incoterm": "Incoterm",
-        "Valor CIF Unitário": "CIF_Unitário",
-        "CIF Unitário": "CIF_Unitário",
+        "Valor CIF Unitário": "CIF_Original",  # Renomeado para evitar conflito com o novo cálculo
+        "CIF Unitário": "CIF_Original",
         "Valor FOB Estimado Unitário": "FOB_Unitário",
     }
     
@@ -94,21 +94,28 @@ if uploaded_file:
         st.stop()
 
     # --- Limpeza Numérica Robusta ---
-    numeric_cols = ["Peso", "Valor_FOB", "Valor_CIF", "Qtd_Estatística", "CIF_Unitário", "FOB_Unitário"]
+    numeric_cols = ["Peso", "Valor_FOB", "Valor_CIF", "Qtd_Estatística", "FOB_Unitário"]
     for col in numeric_cols:
         if col in df.columns:
             if not pd.api.types.is_numeric_dtype(df[col]):
                 df[col] = df[col].astype(str).str.replace(" ", "", regex=False)
                 def clean_currency_string(val):
                     if "," in val and "." in val:
-                        # Assume ponto como milhar e vírgula como decimal
                         return val.replace(".", "").replace(",", ".")
                     elif "," in val:
                         return val.replace(",", ".")
                     return val
                 df[col] = df[col].apply(clean_currency_string)
-            
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(float)
+
+    # =====================================================
+    # MUDANÇA: CÁLCULO DE CIF UNITÁRIO REALISTA
+    # =====================================================
+    # Calcula a coluna baseada na relação Valor CIF / Peso
+    if "Valor_CIF" in df.columns and "Peso" in df.columns:
+        df["CIF_Unitário"] = df.apply(
+            lambda r: r["Valor_CIF"] / r["Peso"] if r["Peso"] > 0 else 0.0, axis=1
+        )
 
     # --- Tratamento de NCM ---
     if "NCM" in df.columns:
@@ -166,7 +173,6 @@ if uploaded_file:
                 group_opts = ["Nenhum"] + [c for c in ["Descrição", "País", "Importador", "Exportador", "Modal", "Incoterm", "NCM"] if c in df_filtrado.columns]
                 group_by_col = st.selectbox("Agrupar evolução temporal por:", group_opts)
 
-            # Agrupamento para os gráficos
             group_cols = ["ANO/MÊS"]
             if group_by_col != "Nenhum":
                 group_cols.append(group_by_col)
@@ -176,6 +182,7 @@ if uploaded_file:
                 'Valor_CIF': 'sum'
             }).reset_index()
             
+            # Recálculo Ponderado para as médias no gráfico
             df_grouped['CIF_Unitário'] = df_grouped.apply(
                 lambda row: row['Valor_CIF'] / row['Peso'] if row['Peso'] > 0 else 0, axis=1
             )
@@ -188,7 +195,7 @@ if uploaded_file:
 
             with col_g2:
                 fig_cif_u = px.line(df_grouped, x="ANO/MÊS", y="CIF_Unitário", color=group_by_col if group_by_col != "Nenhum" else None,
-                                   title="Evolução CIF Unitário (US$/kg)", markers=True)
+                                   title="Evolução CIF Unitário Realista (US$/kg)", markers=True)
                 fig_cif_u.update_traces(hovertemplate="Data: %{x}<br>CIF Unitário: US$ %{y:.4f}/kg")
                 st.plotly_chart(fig_cif_u, use_container_width=True)
 
@@ -216,7 +223,6 @@ if uploaded_file:
             metrica = st.selectbox("Selecione a métrica para prever:", available_metrics, index=0)
             periods = st.slider("Meses para prever:", 1, 24, 6)
 
-            # Preparação do DataFrame para o Prophet
             if metrica == "CIF_Unitário":
                 df_p = df_filtrado.groupby("ANO/MÊS").apply(
                     lambda x: x['Valor_CIF'].sum() / x['Peso'].sum() if x['Peso'].sum() > 0 else 0
