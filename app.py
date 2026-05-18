@@ -235,7 +235,7 @@ if uploaded_file:
                     }, decimal=',', thousands='.'), 
                     use_container_width=True,
                     height=500 # Define uma altura fixa para a tabela ter barra de rolagem própria
-                )2
+                )
     # =====================================================
     # 🔮 PREVISÃO (PROPHET)
     # =====================================================
