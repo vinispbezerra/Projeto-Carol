@@ -164,9 +164,9 @@ if uploaded_file:
         st.subheader("📈 Painel de Análise Histórica")
         
         # Paleta Arkema (extraída da imagem)
-        ARKEMA_PURPLE = "#45416A"  # Roxo
-        ARKEMA_TEAL = "#70C0A7"    # Verde-água
-        ARKEMA_GREEN = "#2E8B72"   # Verde médio
+        ARKEMA_PURPLE = "#45416A"  # O início do logo ("ARK")
+        ARKEMA_TEAL = "#70C0A7"    # O final do logo ("EMA")
+        ARKEMA_GREEN = "#2E8B72"   # O tom médio do gradiente
         
         if df_filtrado.empty:
             st.warning("Nenhum dado encontrado para os filtros selecionados.")
@@ -182,6 +182,16 @@ if uploaded_file:
             with col_f2:
                 group_opts = ["Nenhum"] + [c for c in ["Descrição", "País", "Importador", "Exportador", "Modal", "Incoterm", "NCM"] if c in df_filtrado.columns]
                 group_by_col = st.selectbox("Agrupar evolução temporal por:", group_opts)
+
+            # --- Garantia da coluna de agrupamento no DataFrame filtrado ---
+            if "Exportador_Agrupado" not in df_filtrado.columns and "Exportador" in df_filtrado.columns:
+                def agrupar_exportadores(nome):
+                    nome = str(nome).upper()
+                    if re.search(r'\bLX\b', nome): return "GRUPO LX"
+                    if re.search(r'ARKEMA', nome): return "ARKEMA GROUP"
+                    if re.search(r'MITSUBISHI', nome): return "MITSUBISHI GROUP"
+                    return nome
+                df_filtrado["Exportador_Agrupado"] = df_filtrado["Exportador"].apply(agrupar_exportadores)
 
             # --- Preparação de Dados Agrupados ---
             group_cols = ["ANO/MÊS"]
@@ -233,7 +243,6 @@ if uploaded_file:
                 fig_imp = px.bar(df_imp, x="Toneladas", y="Importador", orientation='h', 
                                  title="Top 15 Importadores (Toneladas)", height=700, color_discrete_sequence=[ARKEMA_PURPLE])
                 
-                # Grade vertical suave integrada aqui
                 fig_imp.update_layout(
                     xaxis=dict(showgrid=True, gridcolor="rgba(220, 220, 220, 0.4)"),
                     yaxis={'categoryorder':'total ascending'}
@@ -242,14 +251,15 @@ if uploaded_file:
 
             with col_v2:
                 st.subheader("Preço Médio por Exportador (Agrupado)")
-                df_exp = df_filtrado.groupby("Exportador_Agrupado").agg({'Valor_CIF': 'sum', 'Peso': 'sum'}).reset_index()
+                target_exp_col = "Exportador_Agrupado" if "Exportador_Agrupado" in df_filtrado.columns else "Exportador"
+                
+                df_exp = df_filtrado.groupby(target_exp_col).agg({'Valor_CIF': 'sum', 'Peso': 'sum'}).reset_index()
                 df_exp["CIF_Médio"] = df_exp["Valor_CIF"] / df_exp["Peso"]
                 df_exp = df_exp[df_exp["Peso"] > 500].sort_values("CIF_Médio", ascending=True).head(15)
                 
-                fig_exp = px.bar(df_exp, x="CIF_Médio", y="Exportador_Agrupado", orientation='h',
+                fig_exp = px.bar(df_exp, x="CIF_Médio", y=target_exp_col, orientation='h',
                                  title="Preço Médio por Exportador (US$/kg)", height=700, color_discrete_sequence=[ARKEMA_GREEN])
                 
-                # Grade vertical suave integrada aqui
                 fig_exp.update_layout(
                     xaxis=dict(showgrid=True, gridcolor="rgba(220, 220, 220, 0.4)"),
                     yaxis={'categoryorder':'total descending'}
@@ -262,8 +272,7 @@ if uploaded_file:
                 cols_show = ["ANO/MÊS", "NCM", "Descrição", "País", "Peso", "CIF_Unitário", "Importador", "Exportador"]
                 cols_available = [c for c in cols_show if c in df_filtrado.columns]
                 df_display = df_filtrado[cols_available].sort_values("ANO/MÊS", ascending=False)
-                st.dataframe(df_display.style.format({"CIF_Unitário": "US$ {:,.4f}", "Peso": "{:,.2f} kg"}, decimal=',', thousands='.'), use_container_width=True, height=500)
-    # =====================================================
+                st.dataframe(df_display.style.format({"CIF_Unitário": "US$ {:,.4f}", "Peso": "{:,.2f} kg"}, decimal=',', thousands='.'), use_container_width=True, height=500)    # =====================================================
     # 🔮 PREVISÃO (PROPHET)
     # =====================================================
     elif menu == "Previsão":
