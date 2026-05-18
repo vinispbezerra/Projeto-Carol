@@ -244,7 +244,7 @@ if uploaded_file:
                                  title="Top 15 Importadores (Toneladas)", height=700, color_discrete_sequence=[ARKEMA_PURPLE])
                 
                 fig_imp.update_layout(
-                    xaxis=dict(showgrid=True, gridcolor="rgba(220, 220, 220, 0.4)"),
+                    xaxis=dict(showgrid=True, gridcolor="rgba(220, 220, 220, 0.7)"),
                     yaxis={'categoryorder':'total ascending'}
                 )
                 st.plotly_chart(fig_imp, use_container_width=True)
@@ -261,7 +261,7 @@ if uploaded_file:
                                  title="Preço Médio por Exportador (US$/kg)", height=700, color_discrete_sequence=[ARKEMA_GREEN])
                 
                 fig_exp.update_layout(
-                    xaxis=dict(showgrid=True, gridcolor="rgba(220, 220, 220, 0.4)"),
+                    xaxis=dict(showgrid=True, gridcolor="rgba(220, 220, 220, 0.7)"),
                     yaxis={'categoryorder':'total descending'}
                 )
                 st.plotly_chart(fig_exp, use_container_width=True)
