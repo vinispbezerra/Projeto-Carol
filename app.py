@@ -220,6 +220,34 @@ if uploaded_file:
                                          name="Tendência (Média 3m)", line=dict(dash='dash', color=ARKEMA_TEAL))
                 st.plotly_chart(fig_cif_u, use_container_width=True)
 
+            # --- Linha 2: Volume por Empresa e Preço por Exportador ---
+            st.markdown("---")
+            col_v1, col_v2 = st.columns(2)
+            
+            with col_v1:
+                st.subheader("Volume por Importador")
+                df_imp = df_filtrado.groupby("Importador")["Peso"].sum().reset_index()
+                df_imp["Toneladas"] = df_imp["Peso"] / 1000
+                df_imp = df_imp.sort_values("Toneladas", ascending=False).head(15)
+                
+                fig_imp = px.bar(df_imp, x="Toneladas", y="Importador", orientation='h',
+                                 title="Top 15 Importadores (Toneladas)", height=700)
+                fig_imp.update_traces(marker_color=ARKEMA_PURPLE)
+                fig_imp.update_layout(yaxis={'categoryorder':'total ascending'})
+                st.plotly_chart(fig_imp, use_container_width=True)
+
+            with col_v2:
+                st.subheader("Preço Médio por Exportador")
+                df_exp = df_filtrado.groupby("Exportador").agg({'Valor_CIF': 'sum', 'Peso': 'sum'}).reset_index()
+                df_exp["CIF_Médio"] = df_exp["Valor_CIF"] / df_exp["Peso"]
+                df_exp = df_exp[df_exp["Peso"] > 500].sort_values("CIF_Médio", ascending=True).head(15)
+                
+                fig_exp = px.bar(df_exp, x="CIF_Médio", y="Exportador", orientation='h',
+                                 title="Preço Médio por Exportador (US$/kg)", height=700)
+                fig_exp.update_traces(marker_color=ARKEMA_GREEN)
+                fig_exp.update_layout(yaxis={'categoryorder':'total descending'})
+                st.plotly_chart(fig_exp, use_container_width=True)
+
             # --- TABELA ESTILO EXCEL (REPOSICIONADA E MELHORADA) ---
             st.markdown("---")
             with st.expander("📂 Visualizar Tabela de Dados Detalhada (Estilo Excel)", expanded=True):
