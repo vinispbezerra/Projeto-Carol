@@ -157,13 +157,13 @@ if uploaded_file:
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("Navegação:", ["Análise Histórica", "Previsão"])
 
-    # =====================================================
-    # 📈 ANÁLISE HISTÓRICA (GRÁFICOS AMPLIADOS & CORES ATUALIZADAS)
+# =====================================================
+    # 📈 ANÁLISE HISTÓRICA
     # =====================================================
     if menu == "Análise Histórica":
         st.subheader("📈 Painel de Análise Histórica")
         
-        # Paleta Arkema extraída da imagem
+        # Paleta Arkema (extraída da imagem)
         ARKEMA_PURPLE = "#45416A"  # Roxo
         ARKEMA_TEAL = "#70C0A7"    # Verde-água
         ARKEMA_GREEN = "#2E8B72"   # Verde médio
@@ -183,100 +183,86 @@ if uploaded_file:
                 group_opts = ["Nenhum"] + [c for c in ["Descrição", "País", "Importador", "Exportador", "Modal", "Incoterm", "NCM"] if c in df_filtrado.columns]
                 group_by_col = st.selectbox("Agrupar evolução temporal por:", group_opts)
 
-            # --- Preparação de Dados ---
+            # --- Preparação de Dados Agrupados ---
             group_cols = ["ANO/MÊS"]
             if group_by_col != "Nenhum":
                 group_cols.append(group_by_col)
             
-            df_grouped = df_filtrado.groupby(group_cols).agg({'Peso': 'sum', 'Valor_CIF': 'sum'}).reset_index()
-            df_grouped['CIF_Unitário'] = df_grouped.apply(lambda r: r['Valor_CIF'] / r['Peso'] if r['Peso'] > 0 else 0, axis=1)
-            df_grouped = df_grouped.sort_values("ANO/MÊS")
+            df_grouped = df_filtrado.groupby(group_cols).agg({
+                'Peso': 'sum',
+                'Valor_CIF': 'sum'
+            }).reset_index()
             
-            # Tendências
+            df_grouped['CIF_Unitário'] = df_grouped.apply(
+                lambda row: row['Valor_CIF'] / row['Peso'] if row['Peso'] > 0 else 0, axis=1
+            )
+            
+            # Cálculo de Médias Móveis para Tendência (Janela de 3 meses)
+            df_grouped = df_grouped.sort_values("ANO/MÊS")
             df_grouped['Peso_Media_Movel'] = df_grouped['Peso'].rolling(window=3).mean()
             df_grouped['CIF_Media_Movel'] = df_grouped['CIF_Unitário'].rolling(window=3).mean()
 
-            # --- Linha 1: Evolução Temporal (Altura: 600px) ---
+            # --- Linha 1: Gráficos de Evolução Temporal (Altura Ampliada: 600px) ---
             col_g1, col_g2 = st.columns(2)
             with col_g1:
-                fig_peso = px.line(df_grouped, x="ANO/MÊS", y="Peso", 
-                                  color=group_by_col if group_by_col != "Nenhum" else None,
+                fig_peso = px.line(df_grouped, x="ANO/MÊS", y="Peso", color=group_by_col if group_by_col != "Nenhum" else None,
                                   color_discrete_sequence=[ARKEMA_PURPLE, ARKEMA_TEAL, ARKEMA_GREEN],
-                                  title="Evolução de Peso Líquido (kg)", 
-                                  markers=True, height=600)
+                                  title="Evolução de Peso Líquido (kg)", markers=True, height=600)
                 if group_by_col == "Nenhum":
-                    fig_peso.add_scatter(x=df_grouped["ANO/MÊS"], y=df_grouped["Peso_Media_Movel"], 
-                                       name="Tendência (Média 3m)", line=dict(dash='dash', color=ARKEMA_TEAL))
+                    fig_peso.add_scatter(x=df_grouped["ANO/MÊS"], y=df_grouped["Peso_Media_Movel"], name="Tendência (Média 3m)", line=dict(dash='dash', color=ARKEMA_TEAL))
                 st.plotly_chart(fig_peso, use_container_width=True)
 
             with col_g2:
-                fig_cif_u = px.line(df_grouped, x="ANO/MÊS", y="CIF_Unitário", 
-                                   color=group_by_col if group_by_col != "Nenhum" else None,
+                fig_cif_u = px.line(df_grouped, x="ANO/MÊS", y="CIF_Unitário", color=group_by_col if group_by_col != "Nenhum" else None,
                                    color_discrete_sequence=[ARKEMA_PURPLE, ARKEMA_TEAL, ARKEMA_GREEN],
-                                   title="Evolução CIF Unitário (US$/kg)", 
-                                   markers=True, height=600)
+                                   title="Evolução CIF Unitário (US$/kg)", markers=True, height=600)
                 if group_by_col == "Nenhum":
-                    fig_cif_u.add_scatter(x=df_grouped["ANO/MÊS"], y=df_grouped["CIF_Media_Movel"], 
-                                         name="Tendência (Média 3m)", line=dict(dash='dash', color=ARKEMA_TEAL))
+                    fig_cif_u.add_scatter(x=df_grouped["ANO/MÊS"], y=df_grouped["CIF_Media_Movel"], name="Tendência (Média 3m)", line=dict(dash='dash', color=ARKEMA_TEAL))
                 st.plotly_chart(fig_cif_u, use_container_width=True)
 
-# --- Linha 2: Volume por Empresa e Preço por Exportador ---
-        st.markdown("---")
-        b1, b2 = st.columns(2)
-        with b1:
-            st.subheader("Volume por Importador")
-            df_imp = df_filtrado.groupby("PROVÁVEL IMPORTADOR")["Peso líquido"].sum().reset_index()
-            df_imp["Toneladas"] = df_imp["Peso líquido"] / 1000
+            # --- Linha 2: Volume por Empresa e Preço por Exportador (Altura Ampliada: 700px + Linhas de Grade Suaves) ---
+            st.markdown("---")
+            col_v1, col_v2 = st.columns(2)
             
-            fig_imp = px.bar(df_imp.sort_values("Toneladas").tail(15), x="Toneladas", y="PROVÁVEL IMPORTADOR", 
-                             orientation='h', height=700, color_discrete_sequence=[ARKEMA_PURPLE])
-            
-            # Adiciona linhas de grade verticais suaves para separação dos números
-            fig_imp.update_layout(
-                xaxis=dict(
-                    showgrid=True,
-                    gridcolor="rgba(220, 220, 220, 0.4)", # Cinza bem suave e semitransparente
-                    dtick=None # Deixa o Plotly calcular a melhor divisão automaticamente
-                ),
-                yaxis={'categoryorder':'total ascending'}
-            )
-            st.plotly_chart(fig_imp, use_container_width=True)
+            with col_v1:
+                st.subheader("Volume por Importador")
+                df_imp = df_filtrado.groupby("Importador")["Peso"].sum().reset_index()
+                df_imp["Toneladas"] = df_imp["Peso"] / 1000
+                df_imp = df_imp.sort_values("Toneladas", ascending=False).head(15)
+                
+                fig_imp = px.bar(df_imp, x="Toneladas", y="Importador", orientation='h', 
+                                 title="Top 15 Importadores (Toneladas)", height=700, color_discrete_sequence=[ARKEMA_PURPLE])
+                
+                # Grade vertical suave integrada aqui
+                fig_imp.update_layout(
+                    xaxis=dict(showgrid=True, gridcolor="rgba(220, 220, 220, 0.4)"),
+                    yaxis={'categoryorder':'total ascending'}
+                )
+                st.plotly_chart(fig_imp, use_container_width=True)
 
-        with b2:
-            st.subheader("Preço Médio por Exportador (Agrupado)")
-            df_exp = df_filtrado.groupby("Exportador_Agrupado").agg({'VALOR CIF TOTAL': 'sum', 'Peso líquido': 'sum'}).reset_index()
-            df_exp["CIF_Médio"] = df_exp['VALOR CIF TOTAL'] / df_exp['Peso líquido']
-            
-            fig_exp = px.bar(df_exp.sort_values("CIF_Médio").head(15), x="CIF_Médio", y="Exportador_Agrupado", 
-                             orientation='h', height=700, color_discrete_sequence=[ARKEMA_GREEN])
-            
-            # Adiciona linhas de grade verticais suaves para separação dos números
-            fig_exp.update_layout(
-                xaxis=dict(
-                    showgrid=True,
-                    gridcolor="rgba(220, 220, 220, 0.4)", # Mesmo cinza tranquilo
-                    dtick=None
-                ),
-                yaxis={'categoryorder':'total descending'}
-            )
-            st.plotly_chart(fig_exp, use_container_width=True)
-            
-            # --- TABELA ESTILO EXCEL (REPOSICIONADA E MELHORADA) ---
+            with col_v2:
+                st.subheader("Preço Médio por Exportador (Agrupado)")
+                df_exp = df_filtrado.groupby("Exportador_Agrupado").agg({'Valor_CIF': 'sum', 'Peso': 'sum'}).reset_index()
+                df_exp["CIF_Médio"] = df_exp["Valor_CIF"] / df_exp["Peso"]
+                df_exp = df_exp[df_exp["Peso"] > 500].sort_values("CIF_Médio", ascending=True).head(15)
+                
+                fig_exp = px.bar(df_exp, x="CIF_Médio", y="Exportador_Agrupado", orientation='h',
+                                 title="Preço Médio por Exportador (US$/kg)", height=700, color_discrete_sequence=[ARKEMA_GREEN])
+                
+                # Grade vertical suave integrada aqui
+                fig_exp.update_layout(
+                    xaxis=dict(showgrid=True, gridcolor="rgba(220, 220, 220, 0.4)"),
+                    yaxis={'categoryorder':'total descending'}
+                )
+                st.plotly_chart(fig_exp, use_container_width=True)
+
+            # --- Tabela Detalhada com Altura Controlada ---
             st.markdown("---")
             with st.expander("📂 Visualizar Tabela de Dados Detalhada (Estilo Excel)", expanded=True):
                 cols_show = ["ANO/MÊS", "NCM", "Descrição", "País", "Peso", "CIF_Unitário", "Importador", "Exportador"]
                 cols_available = [c for c in cols_show if c in df_filtrado.columns]
-                
                 df_display = df_filtrado[cols_available].sort_values("ANO/MÊS", ascending=False)
-                
-                st.dataframe(
-                    df_display.style.format({
-                        "CIF_Unitário": "US$ {:,.4f}",
-                        "Peso": "{:,.2f} kg"
-                    }, decimal=',', thousands='.'), 
-                    use_container_width=True,
-                    height=500 # Define uma altura fixa para a tabela ter barra de rolagem própria
-                )
+                st.dataframe(df_display.style.format({"CIF_Unitário": "US$ {:,.4f}", "Peso": "{:,.2f} kg"}, decimal=',', thousands='.'), use_container_width=True, height=500)
     # =====================================================
     # 🔮 PREVISÃO (PROPHET)
     # =====================================================
