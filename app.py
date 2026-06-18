@@ -217,7 +217,7 @@ if uploaded_file:
             with col_g1:
                 fig_peso = px.line(df_grouped, x="ANO/MÊS", y="Peso", color=group_by_col if group_by_col != "Nenhum" else None,
                                   color_discrete_sequence=[ARKEMA_PURPLE, ARKEMA_TEAL, ARKEMA_GREEN],
-                                  title="Evolução de Peso Líquido (kg)", markers=True, height=600)
+                                  title="Evolução de Peso Líquido (kg) e Quantidade", markers=True, height=600)
                 if group_by_col == "Nenhum":
                     fig_peso.add_scatter(x=df_grouped["ANO/MÊS"], y=df_grouped["Peso_Media_Movel"], name="Tendência (Média 3m)", line=dict(dash='dash', color=ARKEMA_TEAL))
                 st.plotly_chart(fig_peso, use_container_width=True)
@@ -265,6 +265,114 @@ if uploaded_file:
                     yaxis={'categoryorder':'total descending'}
                 )
                 st.plotly_chart(fig_exp, use_container_width=True)
+
+            # --- Linha 3: Comparação Temporal entre Empresas Selecionadas ---
+            st.markdown("---")
+            st.subheader("📊 Comparação Temporal entre Empresas Selecionadas")
+            st.caption("Selecione 1 ou mais Importadores/Exportadores nos filtros da barra lateral para comparar a evolução de cada empresa em linhas separadas.")
+
+            col_c1, col_c2 = st.columns(2)
+
+            with col_c1:
+                if sel_importadores:
+                    df_comp_imp = df_filtrado[df_filtrado["Importador"].isin(sel_importadores)]
+                    df_comp_imp_grouped = df_comp_imp.groupby(["ANO/MÊS", "Importador"]).agg(
+                        Peso=('Peso', 'sum')
+                    ).reset_index()
+                    df_comp_imp_grouped["Toneladas"] = df_comp_imp_grouped["Peso"] / 1000
+
+                    fig_comp_imp = px.line(
+                        df_comp_imp_grouped, x="ANO/MÊS", y="Toneladas", color="Importador",
+                        title="Volume (Toneladas) por Importador — Comparação",
+                        markers=True, height=500,
+                        color_discrete_sequence=[ARKEMA_PURPLE, ARKEMA_TEAL, ARKEMA_GREEN, "#A8D8CB", "#8C87B8", "#1E7A60"]
+                    )
+                    fig_comp_imp.update_layout(
+                        xaxis=dict(showgrid=True, gridcolor="rgba(220,220,220,0.7)"),
+                        yaxis=dict(showgrid=True, gridcolor="rgba(220,220,220,0.7)", title="Toneladas"),
+                        legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5),
+                    )
+                    st.plotly_chart(fig_comp_imp, use_container_width=True)
+                else:
+                    st.info("Selecione ao menos um Importador no filtro lateral para ver a comparação de volume.")
+
+            with col_c2:
+                if sel_exportadores:
+                    df_comp_exp = df_filtrado[df_filtrado["Exportador"].isin(sel_exportadores)]
+                    df_comp_exp_grouped = df_comp_exp.groupby(["ANO/MÊS", "Exportador"]).agg(
+                        Valor_CIF=('Valor_CIF', 'sum'), Peso=('Peso', 'sum')
+                    ).reset_index()
+                    df_comp_exp_grouped["CIF_Unitário"] = df_comp_exp_grouped.apply(
+                        lambda r: r["Valor_CIF"] / r["Peso"] if r["Peso"] > 0 else 0, axis=1
+                    )
+
+                    fig_comp_exp = px.line(
+                        df_comp_exp_grouped, x="ANO/MÊS", y="CIF_Unitário", color="Exportador",
+                        title="CIF Unitário (US$/kg) por Exportador — Comparação",
+                        markers=True, height=500,
+                        color_discrete_sequence=[ARKEMA_PURPLE, ARKEMA_TEAL, ARKEMA_GREEN, "#A8D8CB", "#8C87B8", "#1E7A60"]
+                    )
+                    fig_comp_exp.update_traces(hovertemplate="Data: %{x}<br>CIF Unitário: US$ %{y:.4f}/kg")
+                    fig_comp_exp.update_layout(
+                        xaxis=dict(showgrid=True, gridcolor="rgba(220,220,220,0.7)"),
+                        yaxis=dict(showgrid=True, gridcolor="rgba(220,220,220,0.7)", title="US$/kg"),
+                        legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5),
+                    )
+                    st.plotly_chart(fig_comp_exp, use_container_width=True)
+                else:
+                    st.info("Selecione ao menos um Exportador no filtro lateral para ver a comparação de preço.")
+
+            # --- Linha 4: Comparação de CIF Unitário por Importador ---
+            col_c3, col_c4 = st.columns(2)
+
+            with col_c3:
+                if sel_importadores:
+                    df_comp_imp_cif = df_filtrado[df_filtrado["Importador"].isin(sel_importadores)]
+                    df_comp_imp_cif_grouped = df_comp_imp_cif.groupby(["ANO/MÊS", "Importador"]).agg(
+                        Valor_CIF=('Valor_CIF', 'sum'), Peso=('Peso', 'sum')
+                    ).reset_index()
+                    df_comp_imp_cif_grouped["CIF_Unitário"] = df_comp_imp_cif_grouped.apply(
+                        lambda r: r["Valor_CIF"] / r["Peso"] if r["Peso"] > 0 else 0, axis=1
+                    )
+
+                    fig_comp_imp_cif = px.line(
+                        df_comp_imp_cif_grouped, x="ANO/MÊS", y="CIF_Unitário", color="Importador",
+                        title="CIF Unitário (US$/kg) por Importador — Comparação",
+                        markers=True, height=500,
+                        color_discrete_sequence=[ARKEMA_PURPLE, ARKEMA_TEAL, ARKEMA_GREEN, "#A8D8CB", "#8C87B8", "#1E7A60"]
+                    )
+                    fig_comp_imp_cif.update_traces(hovertemplate="Data: %{x}<br>CIF Unitário: US$ %{y:.4f}/kg")
+                    fig_comp_imp_cif.update_layout(
+                        xaxis=dict(showgrid=True, gridcolor="rgba(220,220,220,0.7)"),
+                        yaxis=dict(showgrid=True, gridcolor="rgba(220,220,220,0.7)", title="US$/kg"),
+                        legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5),
+                    )
+                    st.plotly_chart(fig_comp_imp_cif, use_container_width=True)
+                else:
+                    st.info("Selecione ao menos um Importador no filtro lateral para ver a comparação de CIF.")
+
+            with col_c4:
+                if sel_exportadores:
+                    df_comp_exp_vol = df_filtrado[df_filtrado["Exportador"].isin(sel_exportadores)]
+                    df_comp_exp_vol_grouped = df_comp_exp_vol.groupby(["ANO/MÊS", "Exportador"]).agg(
+                        Peso=('Peso', 'sum')
+                    ).reset_index()
+                    df_comp_exp_vol_grouped["Toneladas"] = df_comp_exp_vol_grouped["Peso"] / 1000
+
+                    fig_comp_exp_vol = px.line(
+                        df_comp_exp_vol_grouped, x="ANO/MÊS", y="Toneladas", color="Exportador",
+                        title="Volume (Toneladas) por Exportador — Comparação",
+                        markers=True, height=500,
+                        color_discrete_sequence=[ARKEMA_PURPLE, ARKEMA_TEAL, ARKEMA_GREEN, "#A8D8CB", "#8C87B8", "#1E7A60"]
+                    )
+                    fig_comp_exp_vol.update_layout(
+                        xaxis=dict(showgrid=True, gridcolor="rgba(220,220,220,0.7)"),
+                        yaxis=dict(showgrid=True, gridcolor="rgba(220,220,220,0.7)", title="Toneladas"),
+                        legend=dict(orientation="h", yanchor="top", y=-0.25, xanchor="center", x=0.5),
+                    )
+                    st.plotly_chart(fig_comp_exp_vol, use_container_width=True)
+                else:
+                    st.info("Selecione ao menos um Exportador no filtro lateral para ver a comparação de volume.")
 
             # --- Tabela Detalhada com Altura Controlada ---
             st.markdown("---")
